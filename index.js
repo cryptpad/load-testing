@@ -311,6 +311,7 @@ let ask = () => {
             process.stdin.resume();
         }, 200);
         setInterval(() => {
+            Env.lag = [];
             let q = Env.queries;
             let now = +new Date();
             fr = Math.floor(1000*(Env.queries-last.q)/(now-last.t));
