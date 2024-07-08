@@ -149,8 +149,9 @@ let setRandomInterval = f => {
     let rdm = 300 + Math.floor(delay * Math.random());
     if (Env.stopPatch) { return; }
     setTimeout(function () {
-        f();
-        setRandomInterval(f);
+        f(() => {
+            setRandomInterval(f);
+        });
     }, rdm);
 };
 
@@ -206,11 +207,11 @@ let startOneUser = function (i, init, cb) {
                         wc.bcast(m).then(() => {
                             let now = +new Date();
                             Env.lag.push((now - t));
-                            cb();
+                            if (cb) { cb(); }
                         }, err => {
                             Env.errors++;
                             console.error(err);
-                            cb();
+                            if (cb) { cb(); }
                         });
                     });
                 });
