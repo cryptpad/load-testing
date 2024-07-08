@@ -1,0 +1,16 @@
+{
+  "name": "cryptpad-load",
+  "description": "CryptPad load test",
+  "version": "0.0.1",
+  "license": "AGPL-3.0+",
+  "dependencies": {
+    "chainpad-crypto": "^0.2.5",
+    "netflux-websocket": "^1.2.0",
+    "nthen": "0.1.8",
+    "prompt-confirm": "^2.0.4",
+    "saferphore": "0.0.1",
+    "sodium-native": "^4.1.1",
+    "tweetnacl": "~0.12.2",
+    "ws": "^8.18.0"
+  }
+}
