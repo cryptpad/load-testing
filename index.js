@@ -61,8 +61,10 @@ let signMsg = (isCp, secret) => {
     let msg = getMsg(isCp);
     let signKey = nacl.util.decodeBase64(secret.keys.signKey);
     let msg8 = nacl.util.decodeUTF8(msg);
-    let signed = new Uint8Array(msg8.length + 64);
-    Sodium.crypto_sign(signed, msg8, signKey);
+    let signed8 = new Uint8Array(msg8.length + 64);
+    //let signed2 = nacl.util.encodeBase64(nacl.sign(nacl.util.decodeUTF8(msg), signKey));
+    Sodium.crypto_sign(signed8, msg8, signKey);
+    let signed = nacl.util.encodeBase64(signed8);
     if (!isCp) { return signed; }
     let id = msg.slice(0,8);
     return `cp|${id}|${signed}`;
@@ -250,6 +252,7 @@ let start = function (cb) {
 };
 
 let makeAllData = function (cb) {
+    clearDataCmd(Env.offset, Env.numberUsers);
     var sem = Saferphore.create(10);
     let max = Env.numberUsers + Env.offset;
     nThen(w => {
@@ -353,15 +356,16 @@ process.argv.forEach(key => {
 console.log('Number of users:', Env.numberUsers);
 console.log('Offset:', Env.offset);
 
-start(() => {
-    console.log('Users are ready');
-    if (Env.create) {
-        return makeAllData(() => {
-            console.log('DONE');
-        });
-    }
-    ask();
-});
+if (Env.create) {
+    makeAllData(() => {
+        console.log('DONE');
+    });
+} else {
+    start(() => {
+        console.log('Users are ready');
+        ask();
+    });
+}
 
 process.on('SIGINT', function() {
   process.exit(0);
