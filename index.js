@@ -85,10 +85,10 @@ let makeData = function (id, cb) {
     });
 };
 
-let clearDataCmd = max => {
+let clearDataCmd = (start, max) => {
     let cmd = 'Run the following commands to clear all the data\n';
     cmd += 'rm ';
-    for (let i=0; i<max; i++) {
+    for (let i=start; i<(start+max); i++) {
         let hash = makeHash(i);
         let secret = Hash.getSecrets('pad', hash);
         let chan = secret.channel;
@@ -222,7 +222,7 @@ let startOneUser = function (i, init, cb) {
 };
 
 let start = function (cb) {
-    clearDataCmd(Env.numberUsers);
+    clearDataCmd(Env.offset, Env.numberUsers);
     var sem = Saferphore.create(20);
     let max = Env.numberUsers + Env.offset;
     nThen(w => {
@@ -344,6 +344,10 @@ process.argv.forEach(key => {
         Env.maxQ = Number(q || 800);
         return;
     }
+    if (key === '--create') {
+        Env.create = true;
+        return;
+    }
 });
 
 console.log('Number of users:', Env.numberUsers);
@@ -351,6 +355,11 @@ console.log('Offset:', Env.offset);
 
 start(() => {
     console.log('Users are ready');
+    if (Env.create) {
+        return makeAllData(() => {
+            console.log('DONE');
+        });
+    }
     ask();
 });
 
