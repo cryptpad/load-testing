@@ -196,7 +196,7 @@ let startOneUser = function (i, init, cb) {
                 // Only fill the chan if it is not originally empty
                 if (Env.users[id].isEmpty) { return; }
                 startSendDataEvt.reg(function () {
-                    setRandomInterval(function () {
+                    setRandomInterval(function (cb) {
                         let i = chanObj.total || 0;
                         let m = signMsg(!(i%50), chanObj.secret);
                         //console.log('Send patch', channel, i%50);
@@ -206,9 +206,11 @@ let startOneUser = function (i, init, cb) {
                         wc.bcast(m).then(() => {
                             let now = +new Date();
                             Env.lag.push((now - t));
+                            cb();
                         }, err => {
                             Env.errors++;
                             console.error(err);
+                            cb();
                         });
                     });
                 });
