@@ -18,6 +18,7 @@ let Env = {
     users: {},
     channels: {},
     queries: 0,
+    patches: 0,
     lag: [],
     errors: 0
 };
@@ -276,7 +277,121 @@ let makeAllData = function (cb) {
     });
 };
 
+let startOneHistory = (id, _cb) => {
+    let cb = Util.once(_cb);
+    let network;
+    let hash = makeHash(id);
+    let secret = Hash.getSecrets('pad', hash);
+    nThen(w => {
+        makeNetwork(w((err, _network) => {
+            if (err) {
+                w.abort();
+                return void console.error(err);
+            }
+            network = _network;
+            me = Env.users[id] = {
+                network: network
+            };
+        }));
+    }).nThen(w => {
+        let n = 0;
+        let getHistory = () => {
+            n = 0;
+            let cfg = {
+                metadata: {
+                    validateKey: secret.keys.validateKey,
+                    owners: [edPublic]
+                }
+            };
+            let msg = ['GET_HISTORY', secret.channel, cfg];
+            network.sendto(Env.hk, JSON.stringify(msg)).then((err) => {
+                Env.incQueries();
+            }, (err) => {
+                console.error(err);
+            });
+        };
+        network.on('message', (msg, sender) => {
+            if (sender !== Env.hk) { return; }
+            let parsed = JSON.parse(msg);
+            if (parsed.state === 1 && parsed.channel === secret.channel) {
+                if (!n) {
+                    console.log('EMPTY HISTORY USER', id);
+                } else {
+                    setTimeout(getHistory, 1000);
+                }
+                return cb();
+            }
+            let m = parsed[4];
+            if (parsed[3] !== secret.channel) { return; }
+            if (!m) { return; }
+            Env.incPatches();
+            n++;
+        });
+        if (!Env.hk) {
+            console.log('GET HK');
+            return network.join(secret.channel).then(wc => {
+                wc.members.forEach(function (p) {
+                    if (p.length === 16) { Env.hk = p; }
+                });
+                wc.leave();
+                setTimeout(getHistory);
+            });
+        }
+        setTimeout(getHistory);
+    });
+};
 
+let startHistory = () => {
+    let max = Env.numberUsers + Env.offset;
+    let n = nThen;
+    for (let i=Env.offset; i<max; i++) {
+        n = n(w => {
+            startOneHistory(i, w(() => {
+                console.log('loaded user ', i);
+            }));
+        }).nThen;
+    }
+    n(() => {
+        console.log('READY');
+
+        Env.start = +new Date();
+        let last = {
+            t: +new Date(),
+            p: 0,
+            q: 0
+        };
+        let fr = 0;
+        let frp = 0;
+        setInterval(() => {
+            let q = Env.queries;
+            let now = +new Date();
+            let diffTime = (now-Env.start)/1000;
+            let f = Math.floor(q/diffTime);
+
+            let time = Math.floor(diffTime);
+            process.stdout.clearLine(0);
+            process.stdout.cursorTo(0);
+            process.stdout.write(`Time: ${time}s \t|\t  history/s: ${fr} \t|\t patches/s: ${frp}`);
+            process.stdin.resume();
+        }, 200);
+        setInterval(() => {
+            let q = Env.queries;
+            let p = Env.patches;
+            let now = +new Date();
+            fr = Math.floor(1000*(q-last.q)/(now-last.t));
+            frp = Math.floor(1000*(p-last.p)/(now-last.t));
+
+            last.t = now;
+            last.q = q;
+            last.p = p;
+        }, 1000);
+    });
+};
+
+
+Env.incPatches = () => {
+    Env.patches++;
+};
 Env.incQueries = () => {
     Env.queries++;
     if (Env.maxQ && Env.queries >= Env.maxQ) {
@@ -291,12 +406,14 @@ let ask = () => {
             return setTimeout(ask, 1000);
         }
         let qIt, fIt;
-        let last = {};
 
         startSendDataEvt.fire();
         Env.start = +new Date();
-        last.t = +new Date();
-        last.q = 0;
+
+        let last = {
+            t: +new Date(),
+            q: 0
+        };
         let fr = 0;
         console.log('Stats:');
         process.stdout.write('waiting...');
@@ -317,9 +434,8 @@ let ask = () => {
             Env.lag = [];
             let q = Env.queries;
             let now = +new Date();
-            fr = Math.floor(1000*(Env.queries-last.q)/(now-last.t));
-
-            last.t = +new Date();
+            fr = Math.floor(1000*(q-last.q)/(now-last.t));
+            last.t = now;
             last.q = q;
         }, 1000);
     });
@@ -351,6 +467,10 @@ process.argv.forEach(key => {
         Env.maxQ = Number(q || 800);
         return;
     }
+    if (key === '--history') {
+        Env.history = true;
+        return;
+    }
     if (key === '--create') {
         Env.create = true;
         return;
@@ -360,7 +480,9 @@ process.argv.forEach(key => {
 console.log('Number of users:', Env.numberUsers);
 console.log('Offset:', Env.offset);
 
-if (Env.create) {
+if (Env.history) {
+    startHistory();
+} else if (Env.create) {
     makeAllData(() => {
         console.log('DONE');
     });
