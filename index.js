@@ -314,11 +314,12 @@ let startOneHistory = (id, _cb) => {
             if (sender !== Env.hk) { return; }
             let parsed = JSON.parse(msg);
             if (parsed.state === 1 && parsed.channel === secret.channel) {
-                if (!n) {
+                    setTimeout(getHistory, 1000);
+                /*if (!n) {
                     console.log('EMPTY HISTORY USER', id);
                 } else {
                     setTimeout(getHistory, 1000);
-                }
+                }*/
                 return cb();
             }
             let m = parsed[4];
