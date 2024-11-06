@@ -402,10 +402,7 @@ Env.incQueries = () => {
 
 let ask = () => {
     const p = new prompt('Start sending patches?');
-    p.ask(function (answer) {
-        if (!answer) {
-            return setTimeout(ask, 1000);
-        }
+    let run = () => {
         let qIt, fIt;
 
         startSendDataEvt.fire();
@@ -439,6 +436,18 @@ let ask = () => {
             last.t = now;
             last.q = q;
         }, 1000);
+    };
+    if (Env.noAsk) {
+        return run();
+    } else if (Env.noPatch) {
+        process.stdin.resume();
+        return;
+    }
+    p.ask(function (answer) {
+        if (!answer) {
+            return setTimeout(ask, 1000);
+        }
+        run();
     });
 
 };
@@ -474,6 +483,14 @@ process.argv.forEach(key => {
     }
     if (key === '--create') {
         Env.create = true;
+        return;
+    }
+    if (key === '--no-ask') {
+        Env.noAsk = true;
+        return;
+    }
+    if (key === '--no-patch') {
+        Env.noPatch = true;
         return;
     }
 });
