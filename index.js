@@ -7,8 +7,21 @@ const nThen = require('nthen');
 const Saferphore = require('saferphore');
 const prompt = require('prompt-confirm');
 const ws = require('ws');
-const wss = "wss://freemium.cryptpad.fr/cryptpad_websocket";
+const ServerCommand = require('./http-command');
+const Pinpad = require('./pinpad');
 
+
+// CONFIG
+const domain = "freemium.cryptpad.fr";
+const USE_WS = false;
+const blobSizeMult = 1000; // Base size is 128KB
+// END CONFIG
+
+const wss = `wss://${domain}/cryptpad_websocket`;
+const url = `https://${domain}`;
+
+
+ServerCommand.setOrigin(url);
 global.window = {
     WebSocket: ws.WebSocket,
     addEventListener: () => {}
@@ -50,7 +63,12 @@ let makeHash = (id) => {
 
 let getMsg = isCp => {
     let base = nacl.util.encodeBase64(nacl.randomBytes(30));
-    let repeat = isCp ? 300 : 5;
+    let repeat;
+    if (isCp) {
+        repeat = 1500 + Math.floor(Math.rand() * 3000);
+    } else {
+        repeat = 5 + Math.floor(Math.rand() * 10)
+    }
     let str = base;
     for (let i = 0; i < repeat; i++) {
         str += base;
@@ -389,6 +407,159 @@ let startHistory = () => {
     });
 };
 
+const uploadUrl = url + '/upload-blob';
+const allIDs = [];
+const uploadRandomFile = (keys, rpc, cookie, cb) => {
+    let n = 0;
+    const next = (cb) => {
+        if (n++ > 1000) {
+            // 128MB: stop upload
+            return void cb();
+        }
+        const u8 = new Uint8Array(128000);
+        const u = nacl.randomBytes(1000);
+        for(let i = 0; i<128; i++) {
+            u8.set(u, i*1000);
+        }
+        cb(u8);
+    };
+
+    const sendChunkWs = function (box, cb) {
+        if (!(n%50)) {
+            console.log('Sending chunk', `${n}/1000`);
+        }
+        var enc = Util.encodeBase64(box);
+        rpc.send.unauthenticated('UPLOAD', enc, cb);
+    };
+    const sendChunk = (data, cb, cookie) => {
+        const enc = Util.encodeBase64(data);
+        const c = Util.decodeUTF8(cookie);
+        const sig_str = nacl.sign(c, keys.secretKey);
+        const sig = Util.encodeBase64(sig_str);
+
+        const body = {
+            chunk: enc,
+            sig: sig,
+            edPublic: keys.edPublic
+        };
+        if (!(n%50)) {
+            console.log('Sending chunk', `${n}/1000`);
+        }
+
+        fetch(uploadUrl, {
+            method: 'post',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        }).then(res => res.json())
+          .then(json => {
+            if (json?.error) {
+                return cb(json.error);
+            }
+            cookie = json.cookie;
+            cb(void 0, cookie);
+        }).catch(cb);
+    };
+
+    var again = function (err, box, cookie) {
+        if (err) { return console.error(err); }
+        if (box) {
+            let send = sendChunk;
+            if (USE_WS) {
+                send = sendChunkWs;
+            }
+            return void send(box, function (e, cookie) {
+                if (e) { return console.error(e); }
+                next(u8 => {
+                    again(void 0, u8, cookie);
+                });
+            }, cookie);
+        }
+
+        // if not box then done
+        const id = Hash.createChannelId() + Hash.createChannelId().slice(0,16);
+        console.log(id);
+        allIDs.push(id);
+        rpc.uploadComplete(id, cb);
+    };
+
+    next(u8 => {
+        again(void 0, u8, cookie);
+    });
+};
+
+const startOneBlob = (cb) => {
+    let network, rpc, cookie;
+    const keys = nacl.sign.keyPair();
+    const keys64 = {
+        edPublic: nacl.util.encodeBase64(keys.publicKey),
+        edPrivate: nacl.util.encodeBase64(keys.secretKey),
+    };
+    keys.edPublic = keys64.edPublic;
+    console.log(keys.edPublic);
+
+    nThen(w => {
+        makeNetwork(w((err, _network) => {
+            if (err) {
+                w.abort();
+                return void console.error(err);
+            }
+            network = _network;
+        }));
+    }).nThen(w => {
+        if (Env.hk) { return; }
+        network.join('00000000000000000000000000000000').then(w(wc => {
+            wc.members.forEach(function (p) {
+                if (p.length === 16) { Env.hk = p; }
+            });
+            wc.leave();
+        }));
+    }).nThen(w => {
+        network.historyKeeper = Env.hk;
+        Pinpad.create(network, keys64, w((err, call) => {
+            if (err) {
+                w.abort();
+                return void console.error(err);
+            }
+            rpc = call;
+        }));
+    }).nThen(w => {
+        if (USE_WS) { return; }
+        ServerCommand(keys, {
+            command: 'UPLOAD_COOKIE',
+        }, w((err, data) => {
+            cookie = data?.cookie;
+            if (err || !cookie) {
+                w.abort();
+                return void console.error(err);
+            }
+        }));
+    }).nThen(w => {
+        uploadRandomFile(keys, rpc, cookie, () => {
+            console.log('File uploaded');
+            cb();
+        });
+    });
+
+};
+
+const startBlobs = cb => {
+    console.log('Start uploading blobs');
+    nThen(w => {
+        for (let i=0; i<Env.numberBlobs; i++) {
+            startOneBlob(w(() => {
+                console.log('TO CLEAN', allIDs);
+            }));
+        }
+    }).nThen(() => {
+        if (Env.loop) {
+            return startBlobs(cb);
+        }
+        cb();
+    });
+};
+
 
 Env.incPatches = () => {
     Env.patches++;
@@ -477,12 +648,21 @@ process.argv.forEach(key => {
         Env.maxQ = Number(q || 800);
         return;
     }
+    if (/^--blobs=/.test(key)) {
+        let u = key.slice(8);
+        Env.numberBlobs = Number(u || 10);
+        return;
+    }
     if (key === '--history') {
         Env.history = true;
         return;
     }
     if (key === '--create') {
         Env.create = true;
+        return;
+    }
+    if (key === '--loop') {
+        Env.loop = true;
         return;
     }
     if (key === '--no-ask') {
@@ -494,6 +674,17 @@ process.argv.forEach(key => {
         return;
     }
 });
+
+process.on('SIGINT', function() {
+  process.exit(0);
+});
+
+if (Env.numberBlobs) {
+    console.log('Number of blobs:', Env.numberBlobs);
+    return startBlobs(() => {
+        console.log('DONE');
+    });
+}
 
 console.log('Number of users:', Env.numberUsers);
 console.log('Offset:', Env.offset);
@@ -511,6 +702,3 @@ if (Env.history) {
     });
 }
 
-process.on('SIGINT', function() {
-  process.exit(0);
-});
