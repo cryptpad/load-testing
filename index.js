@@ -65,9 +65,9 @@ let getMsg = isCp => {
     let base = nacl.util.encodeBase64(nacl.randomBytes(30));
     let repeat;
     if (isCp) {
-        repeat = 1500 + Math.floor(Math.rand() * 3000);
+        repeat = 1500 + Math.floor(Math.random() * 3000);
     } else {
-        repeat = 5 + Math.floor(Math.rand() * 10)
+        repeat = 5 + Math.floor(Math.random() * 10)
     }
     let str = base;
     for (let i = 0; i < repeat; i++) {
