@@ -27,5 +27,5 @@ The script accepts the following options:
 - `--history`: if set, only send get history requests, don’t send patch (to verify)
 - `--create`: if set, only initialize users (don’t send patch)
 - `--loop`: if set, with `--blobs` set, loop indefinitely the blob upload
-- `--no-ask`: don’t ask after init and start immediately
-- `--no-patch`: deprecated, was used instead of `--create`
+- `--no-ask`: if set, don’t ask after init and start immediately
+- `--no-patch`: deprecated, if set, was used instead of `--create`
